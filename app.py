@@ -20,7 +20,7 @@ machine_width = st.number_input("Machine width (m)", value=48)
 current_heading = st.slider("Current driving heading (°)", min_value=0, max_value=179, value=0)
 machine_speed_kph = st.number_input("Machine speed (km/h)", value=20)
 turn_time_sec = st.number_input("Turn time (seconds)", value=10)
-angle_step = 0.5  # Resolution for optimization
+angle_step = 0.5  # Optimization resolution
 
 if uploaded_file:
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -74,6 +74,8 @@ if uploaded_file:
                     best_angle = angle
                     best_lines = clipped
 
+            # Adjust for real-world heading
+            adjusted_best_heading = (best_angle - 90) % 180
             final_lines = [rotate(line, -best_angle, origin=origin, use_radians=False) for line in best_lines]
 
             # === CURRENT HEADING ===
@@ -123,7 +125,7 @@ if uploaded_file:
             st.subheader("📊 Coverage Summary")
             col1, col2 = st.columns(2)
             with col1:
-                st.metric("Optimized Heading", f"{best_angle:.1f}° ({heading_label(best_angle)})")
+                st.metric("Optimized Heading", f"{adjusted_best_heading:.1f}° ({heading_label(adjusted_best_heading)})")
                 st.metric("Passes Needed", best_pass_count)
                 st.metric("Estimated Time", f"{optimized_time / 60:.1f} min")
             with col2:
@@ -163,7 +165,7 @@ if uploaded_file:
             handles, labels = ax.get_legend_handles_labels()
             unique = dict(zip(labels, handles))
             ax.legend(unique.values(), unique.keys())
-            ax.set_title(f"Optimized: {best_angle:.1f}° | Current: {current_heading:.1f}°")
+            ax.set_title(f"Optimized: {adjusted_best_heading:.1f}° | Current: {current_heading:.1f}°")
             ax.axis('equal')
             plt.tight_layout()
             st.pyplot(fig)
