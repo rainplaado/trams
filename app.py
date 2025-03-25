@@ -10,8 +10,8 @@ import leafmap.foliumap as leafmap
 import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Field Path Optimizer", layout="wide")
-st.title("🚜 Field Path Optimizer with Google Maps")
-st.markdown("Upload a zipped **shapefile** (even JD-style folder-in-zip format). The app will show your field and tramlines on a Google Maps base.")
+st.title("Field Path Optimizer by Rain")
+st.markdown("Upload a zipped **shapefile**")
 
 # === USER INPUT ===
 machine_width = st.number_input("Machine width (m)", value=48)
@@ -150,8 +150,8 @@ if uploaded_file:
 
             m = leafmap.Map(center=(origin_latlon.y, origin_latlon.x), zoom=17)
             m.add_basemap("HYBRID")
-            m.add_gdf(gdf_latlon, layer_name="Field Boundary", style={"color": "black", "fillOpacity": 2})
+            m.add_gdf(gdf_latlon, layer_name="Field Boundary", style={"color": "green", "fillOpacity": 2})
             m.add_gdf(optimized_latlon, layer_name="Optimized Lines", style={"color": "blue", "weight": 2})
-            m.add_gdf(current_latlon, layer_name="Current Lines", style={"color": "red", "weight": 1.5})
+            m.add_gdf(current_latlon, layer_name="Current Lines", style={"color": "red", "weight": 1})
 
             components.html(m.to_html(), height=600)
