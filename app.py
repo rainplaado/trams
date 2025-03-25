@@ -17,9 +17,7 @@ uploaded_file = st.file_uploader("Upload zipped shapefile (.zip)", type="zip")
 
 # === USER INPUT ===
 machine_width = st.number_input("Machine width (m)", value=48)
-current_heading = st.slider("Current driving heading (°)", min_value=0, max_value=179, value=0)
-machine_speed_kph = st.number_input("Machine speed (km/h)", value=20)
-turn_time_sec = st.number_input("Turn time (seconds)", value=10)
+current_heading = st.slider("Current driving heading (°)", min_value=0, max_value=359, value=0)
 angle_step = 0.5  # Optimization resolution
 
 if uploaded_file:
@@ -74,8 +72,9 @@ if uploaded_file:
                     best_angle = angle
                     best_lines = clipped
 
-            # Adjust for real-world heading
-            adjusted_best_heading = (best_angle - 90) % 180
+            # Use 0–360° style headings
+            optimized_heading_forward = (best_angle - 90) % 360
+            optimized_heading_reverse = (optimized_heading_forward + 180) % 360
             final_lines = [rotate(line, -best_angle, origin=origin, use_radians=False) for line in best_lines]
 
             # === CURRENT HEADING ===
@@ -105,17 +104,6 @@ if uploaded_file:
             final_current_lines = [rotate(line, -adjusted_current_heading, origin=origin, use_radians=False)
                                    for line in clipped_current]
 
-            def estimate_total_time(passes, width, geom, speed_kph, turn_sec):
-                area_m2 = geom.area
-                effective_speed_mps = speed_kph * 1000 / 3600
-                total_distance = area_m2 / width
-                driving_time = total_distance / effective_speed_mps
-                turning_time = passes * turn_sec
-                return driving_time + turning_time
-
-            optimized_time = estimate_total_time(best_pass_count, machine_width, field_geom, machine_speed_kph, turn_time_sec)
-            current_time = estimate_total_time(current_passes, machine_width, field_geom, machine_speed_kph, turn_time_sec)
-
             def heading_label(deg):
                 dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW', 'N']
                 ix = int((deg % 360) / 45 + 0.5)
@@ -125,14 +113,12 @@ if uploaded_file:
             st.subheader("📊 Coverage Summary")
             col1, col2 = st.columns(2)
             with col1:
-                st.metric("Optimized Heading", f"{adjusted_best_heading:.1f}° ({heading_label(adjusted_best_heading)})")
+                st.metric("Optimized Heading (fwd)", f"{optimized_heading_forward:.1f}° ({heading_label(optimized_heading_forward)})")
+                st.metric("Optimized Heading (rev)", f"{optimized_heading_reverse:.1f}° ({heading_label(optimized_heading_reverse)})")
                 st.metric("Passes Needed", best_pass_count)
-                st.metric("Estimated Time", f"{optimized_time / 60:.1f} min")
             with col2:
                 st.metric("Current Heading", f"{current_heading}° ({heading_label(current_heading)})")
                 st.metric("Passes Needed", current_passes)
-                st.metric("Estimated Time", f"{current_time / 60:.1f} min")
-                st.metric("⏱️ Time Saved", f"{(current_time - optimized_time) / 60:.1f} min")
 
             # === PLOT ===
             st.subheader("🗺️ Field Coverage Paths")
@@ -165,7 +151,7 @@ if uploaded_file:
             handles, labels = ax.get_legend_handles_labels()
             unique = dict(zip(labels, handles))
             ax.legend(unique.values(), unique.keys())
-            ax.set_title(f"Optimized: {adjusted_best_heading:.1f}° | Current: {current_heading:.1f}°")
+            ax.set_title(f"Optimized: {optimized_heading_forward:.1f}° / {optimized_heading_reverse:.1f}° | Current: {current_heading:.1f}°")
             ax.axis('equal')
             plt.tight_layout()
             st.pyplot(fig)
