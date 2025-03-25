@@ -158,7 +158,7 @@ if uploaded_file:
                 st.metric("Passes Needed", current_passes)
 
             # === MAP ===
-            st.subheader("🗺️ Field Coverage Map (Google Base)")
+            st.subheader("Field Coverage Map (Google Base)")
 
             # Convert lines to GeoDataFrames
             optimized_gdf = gpd.GeoDataFrame(geometry=final_lines, crs=gdf.crs)
@@ -172,6 +172,8 @@ if uploaded_file:
 
             m = leafmap.Map(center=(origin_latlon.y, origin_latlon.x), zoom=17)
             m.add_basemap("HYBRID")
+            m.add_gdf(gdf_latlon, layer_name="Field Boundary", style={"color": "green", "fillOpacity": 0.3})
+
             m.add_gdf(optimized_latlon, layer_name="Optimized Lines", style={"color": "blue", "weight": 2})
             m.add_gdf(current_latlon, layer_name="Current Lines", style={"color": "red", "weight": 1, "dashArray": "5,5"})
 
