@@ -10,7 +10,7 @@ import leafmap.foliumap as leafmap
 import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Field Path Optimizer", layout="wide")
-st.title("🚜 Field Path Optimizer by Rain")
+st.title("Field Path Optimizer by Rain")
 st.markdown("Upload a zipped **shapefile**. JD exports with folders inside ZIPs are supported.")
 
 # === USER INPUT ===
