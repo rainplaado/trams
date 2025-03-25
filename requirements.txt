@@ -3,3 +3,4 @@ geopandas
 shapely
 matplotlib
 numpy
+leafmap

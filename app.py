@@ -2,15 +2,16 @@ import streamlit as st
 import geopandas as gpd
 from shapely.geometry import LineString, MultiLineString
 from shapely.affinity import rotate
-import matplotlib.pyplot as plt
 import numpy as np
 import tempfile
 import zipfile
 import os
+import leafmap.foliumap as leafmap
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Field Path Optimizer", layout="wide")
-st.title("🚜 Field Path Optimizer")
-st.markdown("Upload a zipped **shapefile** of your field to compare optimal and current machine driving paths.")
+st.title("🚜 Field Path Optimizer with Google Maps")
+st.markdown("Upload a zipped **shapefile** of your field to compare optimal and current machine driving paths on a Google Maps background.")
 
 # === UPLOAD SHAPEFILE ===
 uploaded_file = st.file_uploader("Upload zipped shapefile (.zip)", type="zip")
@@ -33,7 +34,7 @@ if uploaded_file:
             shapefile_path = os.path.join(tmpdir, shp_files[0])
             gdf = gpd.read_file(shapefile_path)
             if gdf.crs is None or not gdf.crs.is_projected:
-                gdf = gdf.to_crs(epsg=32750)  # Adjust CRS as needed
+                gdf = gdf.to_crs(epsg=32750)  # Adjust CRS for your region
 
             field_geom = gdf.geometry.iloc[0].buffer(0)
             origin = field_geom.centroid
@@ -72,7 +73,6 @@ if uploaded_file:
                     best_angle = angle
                     best_lines = clipped
 
-            # Use 0–360° style headings
             optimized_heading_forward = (best_angle - 90) % 360
             optimized_heading_reverse = (optimized_heading_forward + 180) % 360
             final_lines = [rotate(line, -best_angle, origin=origin, use_radians=False) for line in best_lines]
@@ -120,38 +120,28 @@ if uploaded_file:
                 st.metric("Current Heading", f"{current_heading}° ({heading_label(current_heading)})")
                 st.metric("Passes Needed", current_passes)
 
-            # === PLOT ===
-            st.subheader("🗺️ Field Coverage Paths")
-            fig, ax = plt.subplots(figsize=(10, 10))
-            gdf.boundary.plot(ax=ax, color='black', linewidth=1)
-            gdf.plot(ax=ax, color='lightgreen', alpha=0.5)
+            # === CREATE INTERACTIVE MAP ===
+            st.subheader("🗺️ Field Coverage Map (Google Base)")
 
-            for line in final_lines:
-                if line.is_empty:
-                    continue
-                if isinstance(line, LineString):
-                    x, y = line.xy
-                    ax.plot(x, y, color='blue', linewidth=1, label='Optimized')
-                elif isinstance(line, MultiLineString):
-                    for part in line.geoms:
-                        x, y = part.xy
-                        ax.plot(x, y, color='blue', linewidth=1)
+            # Convert tramlines to GeoDataFrames
+            optimized_gdf = gpd.GeoDataFrame(geometry=final_lines, crs=gdf.crs)
+            current_gdf = gpd.GeoDataFrame(geometry=final_current_lines, crs=gdf.crs)
 
-            for line in final_current_lines:
-                if line.is_empty:
-                    continue
-                if isinstance(line, LineString):
-                    x, y = line.xy
-                    ax.plot(x, y, color='red', linewidth=1, linestyle='--', label='Current')
-                elif isinstance(line, MultiLineString):
-                    for part in line.geoms:
-                        x, y = part.xy
-                        ax.plot(x, y, color='red', linewidth=1, linestyle='--')
+            # Reproject all to WGS84 (leafmap requires lat/lon)
+            gdf_latlon = gdf.to_crs(epsg=4326)
+            optimized_latlon = optimized_gdf.to_crs(epsg=4326)
+            current_latlon = current_gdf.to_crs(epsg=4326)
+            origin_latlon = origin.to_crs(epsg=4326) if hasattr(origin, "to_crs") else gdf_latlon.geometry.iloc[0].centroid
 
-            handles, labels = ax.get_legend_handles_labels()
-            unique = dict(zip(labels, handles))
-            ax.legend(unique.values(), unique.keys())
-            ax.set_title(f"Optimized: {optimized_heading_forward:.1f}° / {optimized_heading_reverse:.1f}° | Current: {current_heading:.1f}°")
-            ax.axis('equal')
-            plt.tight_layout()
-            st.pyplot(fig)
+            # Initialize map
+            center_coords = (origin_latlon.y, origin_latlon.x)
+            m = leafmap.Map(center=center_coords, zoom=17)
+            m.add_basemap("HYBRID")  # or "SATELLITE", "ROADMAP", "TERRAIN"
+
+            # Add layers
+            m.add_gdf(gdf_latlon, layer_name="Field Boundary", style={"color": "green", "fillOpacity": 0.3})
+            m.add_gdf(optimized_latlon, layer_name="Optimized Lines", style={"color": "blue", "weight": 2})
+            m.add_gdf(current_latlon, layer_name="Current Lines", style={"color": "red", "dashArray": "5,5"})
+
+            # Show map
+            components.html(m.to_html(), height=600)
