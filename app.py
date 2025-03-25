@@ -152,6 +152,6 @@ if uploaded_file:
             m.add_basemap("HYBRID")
             m.add_gdf(gdf_latlon, layer_name="Field Boundary", style={"color": "black", "fillOpacity": 2})
             m.add_gdf(optimized_latlon, layer_name="Optimized Lines", style={"color": "blue", "weight": 2})
-            m.add_gdf(current_latlon, layer_name="Current Lines", style={"color": "red", "weight": "1,5"})
+            m.add_gdf(current_latlon, layer_name="Current Lines", style={"color": "red", "weight": 1.5})
 
             components.html(m.to_html(), height=600)
