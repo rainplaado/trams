@@ -10,12 +10,22 @@ import leafmap.foliumap as leafmap
 import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Field Path Optimizer", layout="wide")
-st.title("Field Path Optimizer by Rain")
-st.markdown("Upload a zipped **shapefile**")
+st.title("🚜 Field Path Optimizer by Rain")
+st.markdown("Upload a zipped **shapefile**. JD exports with folders inside ZIPs are supported.")
 
 # === USER INPUT ===
 machine_width = st.number_input("Machine width (m)", value=48)
-current_heading = st.slider("Current driving heading (°)", min_value=0, max_value=359, value=0)
+
+# Let user type or use slider for heading
+col_heading_1, col_heading_2 = st.columns([2, 1])
+with col_heading_1:
+    current_heading_input = st.number_input("Current heading (°)", min_value=0, max_value=359, value=0)
+with col_heading_2:
+    current_heading_slider = st.slider("Adjust heading", min_value=0, max_value=359, value=current_heading_input)
+
+# Use slider value if adjusted
+current_heading = current_heading_slider
+
 angle_step = 0.5  # Optimization resolution
 
 # === UPLOAD SHAPEFILE ===
@@ -47,12 +57,21 @@ if uploaded_file:
                 selected_shp = os.path.join(tmpdir, choice)
 
             # === LOAD FIELD ===
-            gdf = gpd.read_file(selected_shp)
-            if gdf.crs is None or not gdf.crs.is_projected:
-                gdf = gdf.to_crs(epsg=32750)  # Adjust CRS for your region
+            gdf_all = gpd.read_file(selected_shp)
+            if gdf_all.crs is None or not gdf_all.crs.is_projected:
+                gdf_all = gdf_all.to_crs(epsg=32750)
 
-            field_geom = gdf.geometry.iloc[0].buffer(0)
+            # Filter only polygons
+            polygon_gdf = gdf_all[gdf_all.geometry.type.isin(["Polygon", "MultiPolygon"])]
+
+            if polygon_gdf.empty:
+                st.error("No polygon features found in the selected shapefile.")
+                st.stop()
+
+            # Use first polygon only
+            field_geom = polygon_gdf.geometry.iloc[0].buffer(0)
             origin = field_geom.centroid
+            gdf = polygon_gdf.iloc[[0]]
 
             # === OPTIMIZATION ===
             angles = np.arange(0, 180, angle_step)
@@ -150,8 +169,8 @@ if uploaded_file:
 
             m = leafmap.Map(center=(origin_latlon.y, origin_latlon.x), zoom=17)
             m.add_basemap("HYBRID")
-            m.add_gdf(gdf_latlon, layer_name="Field Boundary", style={"color": "green", "fillOpacity": .3})
+            m.add_gdf(gdf_latlon, layer_name="Field Boundary", style={"color": "green", "fillOpacity": 0.3})
             m.add_gdf(optimized_latlon, layer_name="Optimized Lines", style={"color": "blue", "weight": 2})
-            m.add_gdf(current_latlon, layer_name="Current Lines", style={"color": "red", "weight": 1})
+            m.add_gdf(current_latlon, layer_name="Current Lines", style={"color": "red", "weight": 1, "dashArray": "5,5"})
 
             components.html(m.to_html(), height=600)
