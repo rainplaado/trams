@@ -1,6 +1,6 @@
 import streamlit as st
 import geopandas as gpd
-from shapely.geometry import LineString
+from shapely.geometry import LineString, MultiLineString
 from shapely.affinity import rotate
 import matplotlib.pyplot as plt
 import numpy as np
@@ -59,10 +59,15 @@ if uploaded_file:
                     y += machine_width
 
                 clipped = [line.intersection(rotated_field) for line in lines if not line.intersection(rotated_field).is_empty]
-                pass_count = sum(
-                    1 if geom.geom_type == 'LineString' else len(geom.geoms)
-                    for geom in clipped
-                )
+
+                pass_count = 0
+                for geom in clipped:
+                    if geom.is_empty:
+                        continue
+                    elif isinstance(geom, LineString):
+                        pass_count += 1
+                    elif isinstance(geom, MultiLineString):
+                        pass_count += len(geom.geoms)
 
                 if pass_count < best_pass_count:
                     best_pass_count = pass_count
@@ -86,10 +91,14 @@ if uploaded_file:
             clipped_current = [line.intersection(rotated_current_field)
                                for line in current_lines if not line.intersection(rotated_current_field).is_empty]
 
-            current_passes = sum(
-                1 if geom.geom_type == 'LineString' else len(geom.geoms)
-                for geom in clipped_current
-            )
+            current_passes = 0
+            for geom in clipped_current:
+                if geom.is_empty:
+                    continue
+                elif isinstance(geom, LineString):
+                    current_passes += 1
+                elif isinstance(geom, MultiLineString):
+                    current_passes += len(geom.geoms)
 
             final_current_lines = [rotate(line, -adjusted_current_heading, origin=origin, use_radians=False)
                                    for line in clipped_current]
@@ -130,21 +139,23 @@ if uploaded_file:
             gdf.plot(ax=ax, color='lightgreen', alpha=0.5)
 
             for line in final_lines:
-                if line.is_empty: continue
-                if line.geom_type == 'LineString':
+                if line.is_empty:
+                    continue
+                if isinstance(line, LineString):
                     x, y = line.xy
                     ax.plot(x, y, color='blue', linewidth=1, label='Optimized')
-                elif line.geom_type == 'MultiLineString':
+                elif isinstance(line, MultiLineString):
                     for part in line.geoms:
                         x, y = part.xy
                         ax.plot(x, y, color='blue', linewidth=1)
 
             for line in final_current_lines:
-                if line.is_empty: continue
-                if line.geom_type == 'LineString':
+                if line.is_empty:
+                    continue
+                if isinstance(line, LineString):
                     x, y = line.xy
                     ax.plot(x, y, color='red', linewidth=1, linestyle='--', label='Current')
-                elif line.geom_type == 'MultiLineString':
+                elif isinstance(line, MultiLineString):
                     for part in line.geoms:
                         x, y = part.xy
                         ax.plot(x, y, color='red', linewidth=1, linestyle='--')
