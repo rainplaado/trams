@@ -11,28 +11,43 @@ import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Field Path Optimizer", layout="wide")
 st.title("🚜 Field Path Optimizer with Google Maps")
-st.markdown("Upload a zipped **shapefile** of your field to compare optimal and current machine driving paths on a Google Maps background.")
-
-# === UPLOAD SHAPEFILE ===
-uploaded_file = st.file_uploader("Upload zipped shapefile (.zip)", type="zip")
+st.markdown("Upload a zipped **shapefile** (even JD-style folder-in-zip format). The app will show your field and tramlines on a Google Maps base.")
 
 # === USER INPUT ===
 machine_width = st.number_input("Machine width (m)", value=48)
 current_heading = st.slider("Current driving heading (°)", min_value=0, max_value=359, value=0)
 angle_step = 0.5  # Optimization resolution
 
+# === UPLOAD SHAPEFILE ===
+uploaded_file = st.file_uploader("Upload zipped shapefile (.zip)", type="zip")
+
 if uploaded_file:
     with tempfile.TemporaryDirectory() as tmpdir:
         with zipfile.ZipFile(uploaded_file, 'r') as zip_ref:
             zip_ref.extractall(tmpdir)
 
-        # Load shapefile
-        shp_files = [f for f in os.listdir(tmpdir) if f.endswith(".shp")]
+        # Recursively find all .shp files
+        shp_files = []
+        for root, dirs, files in os.walk(tmpdir):
+            for file in files:
+                if file.endswith(".shp"):
+                    full_path = os.path.join(root, file)
+                    shp_files.append(full_path)
+
         if not shp_files:
-            st.error("No .shp file found in the zip.")
+            st.error("No .shp files found in the zip.")
         else:
-            shapefile_path = os.path.join(tmpdir, shp_files[0])
-            gdf = gpd.read_file(shapefile_path)
+            selected_shp = None
+            if len(shp_files) == 1:
+                selected_shp = shp_files[0]
+                st.success(f"Found shapefile: {os.path.basename(selected_shp)}")
+            else:
+                file_names = [os.path.relpath(f, tmpdir) for f in shp_files]
+                choice = st.selectbox("Multiple shapefiles found. Select one:", file_names)
+                selected_shp = os.path.join(tmpdir, choice)
+
+            # === LOAD FIELD ===
+            gdf = gpd.read_file(selected_shp)
             if gdf.crs is None or not gdf.crs.is_projected:
                 gdf = gdf.to_crs(epsg=32750)  # Adjust CRS for your region
 
@@ -120,28 +135,23 @@ if uploaded_file:
                 st.metric("Current Heading", f"{current_heading}° ({heading_label(current_heading)})")
                 st.metric("Passes Needed", current_passes)
 
-            # === CREATE INTERACTIVE MAP ===
+            # === MAP ===
             st.subheader("🗺️ Field Coverage Map (Google Base)")
 
-            # Convert tramlines to GeoDataFrames
+            # Convert lines to GeoDataFrames
             optimized_gdf = gpd.GeoDataFrame(geometry=final_lines, crs=gdf.crs)
             current_gdf = gpd.GeoDataFrame(geometry=final_current_lines, crs=gdf.crs)
 
-            # Reproject all to WGS84 (leafmap requires lat/lon)
+            # Reproject to lat/lon
             gdf_latlon = gdf.to_crs(epsg=4326)
             optimized_latlon = optimized_gdf.to_crs(epsg=4326)
             current_latlon = current_gdf.to_crs(epsg=4326)
-            origin_latlon = origin.to_crs(epsg=4326) if hasattr(origin, "to_crs") else gdf_latlon.geometry.iloc[0].centroid
+            origin_latlon = gdf_latlon.geometry.iloc[0].centroid
 
-            # Initialize map
-            center_coords = (origin_latlon.y, origin_latlon.x)
-            m = leafmap.Map(center=center_coords, zoom=17)
-            m.add_basemap("HYBRID")  # or "SATELLITE", "ROADMAP", "TERRAIN"
-
-            # Add layers
-            m.add_gdf(gdf_latlon, layer_name="Field Boundary", style={"color": "green", "fillOpacity": 0.3})
+            m = leafmap.Map(center=(origin_latlon.y, origin_latlon.x), zoom=17)
+            m.add_basemap("HYBRID")
+            m.add_gdf(gdf_latlon, layer_name="Field Boundary", style={"color": "black", "fillOpacity": 2})
             m.add_gdf(optimized_latlon, layer_name="Optimized Lines", style={"color": "blue", "weight": 2})
-            m.add_gdf(current_latlon, layer_name="Current Lines", style={"color": "red", "dashArray": "5,5"})
+            m.add_gdf(current_latlon, layer_name="Current Lines", style={"color": "red", "weight": "1,5"})
 
-            # Show map
             components.html(m.to_html(), height=600)
