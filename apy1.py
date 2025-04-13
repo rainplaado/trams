@@ -1,4 +1,4 @@
-# SnailCam Visualizer v1.1.15 - Field Optimizer with Spinner and Field Name Extraction
+# SnailCam Visualizer v1.1.15 - Field Optimizer with Fixed Clipping, Labels, and Field Name Extraction
 
 import streamlit as st
 import geopandas as gpd
@@ -42,76 +42,75 @@ if uploaded_file:
         summary = []
         best_overall = {"passes": float("inf")}
 
-        with st.spinner("Calculating optimal tramlines for all fields..."):
-            for shp in shp_files:
-                gdf_all = gpd.read_file(shp)
-                if gdf_all.crs is None or not gdf_all.crs.is_projected:
-                    gdf_all = gdf_all.to_crs(epsg=32750)
+        for shp in shp_files:
+            gdf_all = gpd.read_file(shp)
+            if gdf_all.crs is None or not gdf_all.crs.is_projected:
+                gdf_all = gdf_all.to_crs(epsg=32750)
 
-                polygon_gdf = gdf_all[gdf_all.geometry.type.isin(["Polygon", "MultiPolygon"])].reset_index(drop=True)
+            polygon_gdf = gdf_all[gdf_all.geometry.type.isin(["Polygon", "MultiPolygon"])].reset_index(drop=True)
 
-                for i, row in polygon_gdf.iterrows():
-                    field_geom = row.geometry.buffer(0)
-                    origin = field_geom.centroid
+            for i, row in polygon_gdf.iterrows():
+                field_geom = row.geometry.buffer(0)
+                origin = field_geom.centroid
 
-                    possible_name_fields = ['Name', 'Field', 'FIELD_NAME', 'ID', 'Label']
-                    field_name = None
-                    for col in possible_name_fields:
-                        if col in row and pd.notnull(row[col]):
-                            field_name = str(row[col])
-                            break
-                    if not field_name:
-                        field_name = f"{os.path.basename(shp)} - Field {i + 1}"
+                possible_name_fields = ['Name', 'Field', 'FIELD_NAME', 'ID', 'Label']
+                field_name = None
+                for col in possible_name_fields:
+                    if col in row and pd.notnull(row[col]):
+                        field_name = str(row[col])
+                        break
+                if not field_name:
+                    field_name = f"{os.path.basename(shp)} - Field {i + 1}"
 
-                    best_angle = None
-                    best_pass_count = float("inf")
-                    best_lines = []
+                best_angle = None
+                best_pass_count = float("inf")
+                best_lines = []
 
-                    for angle in np.arange(0, 180, angle_step):
-                        rotated_field = rotate(field_geom, angle, origin=origin, use_radians=False)
-                        miny, maxy = rotated_field.bounds[1], rotated_field.bounds[3]
-                        y = miny - 2 * machine_width
-                        lines = []
-                        while y <= maxy + 2 * machine_width:
-                            lines.append(LineString([(origin.x - 1e5, y), (origin.x + 1e5, y)]))
-                            y += machine_width
+                for angle in np.arange(0, 180, angle_step):
+                    rotated_field = rotate(field_geom, angle, origin=origin, use_radians=False)
+                    miny, maxy = rotated_field.bounds[1], rotated_field.bounds[3]
+                    y = miny - 2 * machine_width
+                    lines = []
+                    while y <= maxy + 2 * machine_width:
+                        lines.append(LineString([(origin.x - 1e5, y), (origin.x + 1e5, y)]))
+                        y += machine_width
 
-                        clipped_rotated = [line.intersection(rotated_field) for line in lines if not line.intersection(rotated_field).is_empty]
-                        rotated_back = [rotate(line, -angle, origin=origin, use_radians=False) for line in clipped_rotated]
-                        final_lines = [line.intersection(field_geom) for line in rotated_back if not line.intersection(field_geom).is_empty]
+                    clipped_rotated = [line.intersection(rotated_field) for line in lines if not line.intersection(rotated_field).is_empty]
+                    rotated_back = [rotate(line, -angle, origin=origin, use_radians=False) for line in clipped_rotated]
+                    final_lines = [line.intersection(field_geom) for line in rotated_back if not line.intersection(field_geom).is_empty]
 
-                        count = 0
-                        for geom in final_lines:
-                            if geom.is_empty:
-                                continue
-                            elif isinstance(geom, LineString):
-                                count += 1
-                            elif isinstance(geom, MultiLineString):
-                                count += len(geom.geoms)
+                    count = 0
+                    for geom in final_lines:
+                        if geom.is_empty:
+                            continue
+                        elif isinstance(geom, LineString):
+                            count += 1
+                        elif isinstance(geom, MultiLineString):
+                            count += len(geom.geoms)
 
-                        if count < best_pass_count:
-                            best_pass_count = count
-                            best_angle = angle
-                            best_lines = final_lines
+                    if count < best_pass_count:
+                        best_pass_count = count
+                        best_angle = angle
+                        best_lines = final_lines
 
-                    forward = (best_angle - 90) % 360
-                    reverse = (forward + 180) % 360
+                forward = (best_angle - 90) % 360
+                reverse = (forward + 180) % 360
 
-                    summary.append({
-                        "file": os.path.basename(shp),
-                        "field": i + 1,
-                        "name": field_name,
-                        "heading_fwd": forward,
-                        "heading_rev": reverse,
-                        "passes": best_pass_count,
-                        "geom": field_geom,
-                        "lines": best_lines,
-                        "crs": gdf_all.crs,
-                        "origin": origin
-                    })
+                summary.append({
+                    "file": os.path.basename(shp),
+                    "field": i + 1,
+                    "name": field_name,
+                    "heading_fwd": forward,
+                    "heading_rev": reverse,
+                    "passes": best_pass_count,
+                    "geom": field_geom,
+                    "lines": best_lines,
+                    "crs": gdf_all.crs,
+                    "origin": origin
+                })
 
-                    if best_pass_count < best_overall["passes"]:
-                        best_overall = summary[-1]
+                if best_pass_count < best_overall["passes"]:
+                    best_overall = summary[-1]
 
         st.subheader("\U0001F4CA Field Summary")
         for item in summary:
