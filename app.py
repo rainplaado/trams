@@ -1,4 +1,4 @@
-# SnailCam Visualizer v1.1.15 - Field Optimizer with Spinner and Field Name Extraction
+# SnailCam Visualizer v1.1.15 - Field Optimizer with Parallel Processing
 
 import streamlit as st
 import geopandas as gpd
@@ -14,15 +14,76 @@ import matplotlib.pyplot as plt
 from fpdf import FPDF
 import folium
 import pandas as pd
+from concurrent.futures import ProcessPoolExecutor
 
 st.set_page_config(page_title="Field Path Optimizer", layout="wide")
-st.title("Field Path Optimizer by Rain")
-st.markdown("Upload a zipped **shapefile**. JD exports with folders inside ZIPs are supported.")
+st.title("Field Path Optimizer by Rain Plaado")
+st.markdown("Upload a zipped **shapefile** that you downloaded from JD opcentre (can include one or more fields).")
 
-machine_width = st.number_input("Machine width (m)", value=48)
+machine_width = st.number_input("Machine width (m)", value=48, step=1, format="%d")
 angle_step = 0.5
 
 uploaded_file = st.file_uploader("Upload zipped shapefile (.zip)", type="zip")
+
+def optimize_field_for_parallel(args):
+    row, i, origin, field_geom, shp, crs, machine_width, angle_step = args
+    best_angle = None
+    best_pass_count = float("inf")
+    best_lines = []
+
+    for angle in np.arange(0, 180, angle_step):
+        rotated_field = rotate(field_geom, angle, origin=origin, use_radians=False)
+        miny, maxy = rotated_field.bounds[1], rotated_field.bounds[3]
+        y = miny - 2 * machine_width
+        lines = []
+        while y <= maxy + 2 * machine_width:
+            lines.append(LineString([(origin.x - 1e5, y), (origin.x + 1e5, y)]))
+            y += machine_width
+
+        clipped_rotated = [line.intersection(rotated_field) for line in lines if not line.intersection(rotated_field).is_empty]
+        rotated_back = [rotate(line, -angle, origin=origin, use_radians=False) for line in clipped_rotated]
+        final_lines = [line.intersection(field_geom) for line in rotated_back if not line.intersection(field_geom).is_empty]
+
+        count = 0
+        for geom in final_lines:
+            if geom.is_empty:
+                continue
+            elif isinstance(geom, LineString):
+                count += 1
+            elif isinstance(geom, MultiLineString):
+                count += len(geom.geoms)
+            else:
+                continue
+
+        if count < best_pass_count:
+            best_pass_count = count
+            best_angle = angle
+            best_lines = final_lines
+
+    forward = (best_angle - 90) % 360
+    reverse = (forward + 180) % 360
+
+    possible_name_fields = ['Name', 'Field', 'FIELD_NAME', 'ID', 'Label']
+    field_name = None
+    for col in possible_name_fields:
+        if col in row and pd.notnull(row[col]):
+            field_name = str(row[col])
+            break
+    if not field_name:
+        field_name = f"{os.path.basename(shp)} - Field {i + 1}"
+
+    return {
+        "file": os.path.basename(shp),
+        "field": i + 1,
+        "name": field_name,
+        "heading_fwd": forward,
+        "heading_rev": reverse,
+        "passes": best_pass_count,
+        "geom": field_geom,
+        "lines": best_lines,
+        "crs": crs,
+        "origin": origin
+    }
 
 if uploaded_file:
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -39,79 +100,24 @@ if uploaded_file:
             st.error("No .shp files found in the zip.")
             st.stop()
 
-        summary = []
-        best_overall = {"passes": float("inf")}
+        all_args = []
+        for shp in shp_files:
+            gdf_all = gpd.read_file(shp)
+            if gdf_all.crs is None or not gdf_all.crs.is_projected:
+                gdf_all = gdf_all.to_crs(epsg=32750)
 
-        with st.spinner("Calculating optimal tramlines for all fields..."):
-            for shp in shp_files:
-                gdf_all = gpd.read_file(shp)
-                if gdf_all.crs is None or not gdf_all.crs.is_projected:
-                    gdf_all = gdf_all.to_crs(epsg=32750)
+            polygon_gdf = gdf_all[gdf_all.geometry.type.isin(["Polygon", "MultiPolygon"])].reset_index(drop=True)
 
-                polygon_gdf = gdf_all[gdf_all.geometry.type.isin(["Polygon", "MultiPolygon"])].reset_index(drop=True)
+            for i, row in polygon_gdf.iterrows():
+                field_geom = row.geometry.buffer(0)
+                origin = field_geom.centroid
+                all_args.append((row, i, origin, field_geom, shp, gdf_all.crs, machine_width, angle_step))
 
-                for i, row in polygon_gdf.iterrows():
-                    field_geom = row.geometry.buffer(0)
-                    origin = field_geom.centroid
+        with st.spinner("Calculating optimal tramlines for all fields... This may take a few minutes."):
+            with ProcessPoolExecutor() as executor:
+                summary = list(executor.map(optimize_field_for_parallel, all_args))
 
-                    possible_name_fields = ['Name', 'Field', 'FIELD_NAME', 'ID', 'Label']
-                    field_name = None
-                    for col in possible_name_fields:
-                        if col in row and pd.notnull(row[col]):
-                            field_name = str(row[col])
-                            break
-                    if not field_name:
-                        field_name = f"{os.path.basename(shp)} - Field {i + 1}"
-
-                    best_angle = None
-                    best_pass_count = float("inf")
-                    best_lines = []
-
-                    for angle in np.arange(0, 180, angle_step):
-                        rotated_field = rotate(field_geom, angle, origin=origin, use_radians=False)
-                        miny, maxy = rotated_field.bounds[1], rotated_field.bounds[3]
-                        y = miny - 2 * machine_width
-                        lines = []
-                        while y <= maxy + 2 * machine_width:
-                            lines.append(LineString([(origin.x - 1e5, y), (origin.x + 1e5, y)]))
-                            y += machine_width
-
-                        clipped_rotated = [line.intersection(rotated_field) for line in lines if not line.intersection(rotated_field).is_empty]
-                        rotated_back = [rotate(line, -angle, origin=origin, use_radians=False) for line in clipped_rotated]
-                        final_lines = [line.intersection(field_geom) for line in rotated_back if not line.intersection(field_geom).is_empty]
-
-                        count = 0
-                        for geom in final_lines:
-                            if geom.is_empty:
-                                continue
-                            elif isinstance(geom, LineString):
-                                count += 1
-                            elif isinstance(geom, MultiLineString):
-                                count += len(geom.geoms)
-
-                        if count < best_pass_count:
-                            best_pass_count = count
-                            best_angle = angle
-                            best_lines = final_lines
-
-                    forward = (best_angle - 90) % 360
-                    reverse = (forward + 180) % 360
-
-                    summary.append({
-                        "file": os.path.basename(shp),
-                        "field": i + 1,
-                        "name": field_name,
-                        "heading_fwd": forward,
-                        "heading_rev": reverse,
-                        "passes": best_pass_count,
-                        "geom": field_geom,
-                        "lines": best_lines,
-                        "crs": gdf_all.crs,
-                        "origin": origin
-                    })
-
-                    if best_pass_count < best_overall["passes"]:
-                        best_overall = summary[-1]
+        best_overall = min(summary, key=lambda x: x['passes'])
 
         st.subheader("\U0001F4CA Field Summary")
         for item in summary:
@@ -170,4 +176,4 @@ if uploaded_file:
         tmp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
         pdf.output(tmp_pdf.name)
         with open(tmp_pdf.name, "rb") as f:
-            st.download_button("\U0001F4E5 Download PDF Summary", f.read(), file_name="field_optimization_report.pdf")
+            st.download_button("Download PDF Summary", f.read(), file_name="field_optimization_report.pdf")
