@@ -158,12 +158,13 @@ if uploaded_file:
         pdf.set_auto_page_break(auto=True, margin=15)
 
         for item in summary:
-            fig, ax = plt.subplots(figsize=(6, 6))
+            fig, ax = plt.subplots(figsize=(8, 8), dpi=300)  # Larger size + high DPI
             gpd.GeoSeries(item['geom']).boundary.plot(ax=ax, color='black')
             gpd.GeoSeries(item['lines']).plot(ax=ax, color='blue', linewidth=0.5)
             plt.axis('off')
             img_path = tempfile.NamedTemporaryFile(suffix=".png", delete=False).name
-            plt.savefig(img_path, bbox_inches='tight', dpi=100)
+            plt.savefig(img_path, bbox_inches='tight', dpi=300)  # High resolution
+
             plt.close(fig)
 
             pdf.add_page()
