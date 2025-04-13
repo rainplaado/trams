@@ -174,7 +174,7 @@ if uploaded_file:
             pdf.cell(200, 10, txt=f"{item['name']}", ln=True, align="C")
             pdf.cell(200, 8, txt=f"Best heading: {item['heading_fwd']:.1f}°", ln=True)
             pdf.cell(200, 8, txt=f"Passes needed: {item['passes']}", ln=True)
-            pdf.image(img_path, x=15, y=40, w=180)
+            pdf.image(img_path, x=15, y=40, w=160)
 
         tmp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
         pdf.output(tmp_pdf.name)
