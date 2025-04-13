@@ -18,7 +18,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 st.set_page_config(page_title="Field Path Optimizer", layout="wide")
 st.title("Field Path Optimizer by Rain Plaado")
-st.markdown("Upload a zipped **shapefile** that you downloaded from JD opcentre (can include one or more fields).")
+st.markdown("Upload a zipped **shapefile** (boundaries) that you downloaded from JD opcentre (can include one or more fields).")
 
 machine_width = st.number_input("Machine width (m)", value=48, step=1, format="%d")
 angle_step = 0.5
