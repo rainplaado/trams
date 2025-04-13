@@ -115,7 +115,9 @@ if uploaded_file:
 
         with st.spinner("Calculating optimal tramlines for all fields... This may take a few minutes."):
             with ProcessPoolExecutor() as executor:
-                summary = list(executor.map(optimize_field_for_parallel, all_args))
+                results = executor.map(optimize_field_for_parallel, all_args)
+
+            summary = list(results)  # safely outside of executor context
 
         best_overall = min(summary, key=lambda x: x['passes'])
 
